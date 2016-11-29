@@ -12,8 +12,8 @@ JAM_BYTE = b'\x02'
 
 class PairOfPorts():
     def __init__(self, port, func=(lambda string: print(string))):
-        self.WritingPort = serial.Serial(port, timeout=5)
-        self.ReadingPort = serial.Serial(port, timeout=5)
+        self.WritingPort = serial.Serial(port, timeout=1)
+        self.ReadingPort = serial.Serial(port, timeout=1)
         read_thread = threading.Thread(target=self.read, name="reader", args=[func])
         self.need_to_read = True
         read_thread.start()
@@ -21,21 +21,27 @@ class PairOfPorts():
     def write(self, data):
         message = data.encode("ascii")
         message = START_BYTE + message + END_BYTE
-        attempts_counter = 0
         for current in message:
             while not self.check_channel():  # Ожидание освобождения канала
                 print("Канал занят.")
                 sleep(0.1)
-            self.WritingPort.write(current)
+            try:
+                self.WritingPort.write([current])
+            except serial.SerialException:
+                print("You write the wrong byte: '{}', baka!".format(bytes([current])))
+            print(chr(current))
             sleep(COLLISION_WINDOW)
+            attempts_counter = 0
             while not self.check_collision():
-                print('X', end='')
                 self.WritingPort.write(JAM_BYTE)
                 attempts_counter += 1
                 if attempts_counter > 11:
                     raise TimeoutError
-                sleep(random.random() * (2 ** max(attempts_counter, 10)))
-                self.WritingPort.write(current)
+                time_to_wait = random.random() * SLOT_TIME * (2 ** min(attempts_counter, 10))
+                print('Коллизия. Генерация случайного числа в интервале 0 - {}. Ожидание {} секунд.'.format(
+                    SLOT_TIME * 2 ** min(attempts_counter, 10), time_to_wait))
+                sleep(time_to_wait)
+                self.WritingPort.write([current])
 
     def read(self, func=(lambda string: print(string))):
         while self.need_to_read:
@@ -50,12 +56,12 @@ class PairOfPorts():
                 while second_byte == JAM_BYTE:
                     first_byte = self.ReadingPort.read(1)
                     second_byte = self.ReadingPort.read(1)
-                if transmission_started:
-                    message += first_byte
-                elif first_byte == START_BYTE:
+                if first_byte == START_BYTE:
                     transmission_started = True
                 elif first_byte == END_BYTE:
                     transmission_finished = True
+                elif transmission_started:
+                    message += first_byte
                 first_byte = second_byte
             if len(message):
                 func(message)
@@ -72,7 +78,7 @@ class PairOfPorts():
 
     @staticmethod
     def check_collision():
-        if datetime.now().second % 2:
+        if datetime.now().microsecond % 2:
             return False
         else:
             return True

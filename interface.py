@@ -61,7 +61,7 @@ class MainWindow(tk.Tk):
     def on_exit(self):
         if self.pair:
             self.pair.stop()
-        sys.exit()
+        self.destroy()
 
 if __name__ == "__main__":
     MainWindow()
